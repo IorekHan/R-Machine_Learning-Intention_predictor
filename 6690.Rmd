@@ -1,0 +1,870 @@
+---
+title: "Multiple ML Molde on Pediction of Online Shoppers' Purchasing Intention"
+
+author: "<h3>Kangrui Li, Yuhang Wang, Linyang Han, Zheyuan Song</h3>"
+
+output:
+  html_document:
+    theme: spacelab
+    highlight: tango
+    toc: true
+    number_sections: true
+    toc_depth: 2
+    toc_float:
+      collapsed: false
+      smooth_scroll: true
+---
+[Back to Homepage](../index.html)
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Data Exploration and Visualization
+## Data Description
+
+The dataset that is used in the current project comes from Sakar et al.(2019), in which the authors designed a system that could predict online shoppers purchasing intention and page abandonment. Online shoppers purchasing intention was cast as a binary classification problem, such that viewers would either made the final purchase or not. The dataset consists of 12330 sessions, of which record a session that a viewer visited items of the websites. Each session would belong to a different user in a 1-year period to avoid any tendency to a specific campaign, special day, user profile, or period. The dataset is highly imbalanced for 84.5%(10422) of the viewers did not make the final purchase.
+
+| Feature        | Feature Description | 
+| ------------- |:-------------:| 
+| Administrative | Number of pages visited by the visitor about account management| 
+| Administative duration | Total amount of time (in seconds) spent by the visitor on account management related pages|  
+| Informational | Number of pages visited by the visitor about Web site, communication and address information of the shopping site |
+| Informational duration | Total amount of time (in seconds) spent by the visitor on informational pages| 
+| Product related | Number of pages visited by visitor about product related pages|  
+| Product related duration | Total amount of time (in seconds) spent by the visitor on product related pages |
+| Bounce rate | Average bounce rate value of the pages visited by the visitor| 
+| Exit rate | Average exit rate value of the pages visited by the visitor|  
+| Page value | Average page value of the pages visited by the visitor |
+| Special day | Closeness of the site visiting time to a special day| 
+| OperatingSystems | Operating system of the visitor|  
+| Browser | Browser of the visitor |
+| Region | Geographic region from which the session has been started by the visitor| 
+| TrafficType | Traffic source by which the visitor has arrived at the Web site (e.g., banner, SMS, direct)|
+| VisitorType | Visitor type as ‘‘New Visitor,’’ ‘‘Returning Visitor,’’ and ‘‘Other’’ |
+| Weekend | Boolean value indicating whether the date of the visit is weekend| 
+| Month | Month value of the visit date|  
+| Revenue | Class label indicating whether the visit has been finalized with a transaction |
+
+## Data Summary
+
+After downloaded, we used read.csv() to import the file directly and summaried to see some statistics, like max, min and median values of 18 features. There are 10 numerical features and 8 categorical features. 
+
+```{r, include=FALSE}
+
+library(magrittr)
+library(kableExtra)
+library(xts)
+library(psych)
+library(corrplot)
+library(caret)
+library(kernlab)
+library(MLmetrics)
+library(RSNNS)
+library(dplyr)
+
+set.seed(1234)
+```
+
+```{r}
+# helper function
+draw_confusion_matrix <- function(cm) {
+  layout(matrix(c(1, 1, 2)))
+  par(mar = c(2, 2, 2, 2), mai = c(0.1, 0.3, 0.3, 0.3))
+  plot(c(139, 345), c(300, 452), type = "n", xlab = "", ylab = "", xaxt = "n", yaxt = "n")
+  title("CONFUSION MATRIX", cex.main = 2)
+  # create the matrix
+  rect(150, 430, 240, 370, col = "#74A0FF")
+  text(195, 437, "FALSE", cex = 1.2)
+  rect(250, 430, 340, 370, col = "#F7AD50")
+  text(295, 437, "TRUE", cex = 1.2)
+
+  text(138, 370, "Predicted", cex = 1.4, srt = 90, font = 2)
+  text(245, 448, "Actual", cex = 1.4, font = 2)
+
+  rect(150, 305, 240, 365, col = "#F7AD50")
+  rect(250, 305, 340, 365, col = "#74A0FF")
+  text(145, 400, "FALSE", cex = 1.2, srt = 90)
+  text(145, 335, "TRUE", cex = 1.2, srt = 90)
+  # add in the cm results
+  res <- as.numeric(cm)
+  text(195, 400, res[1], cex = 1.6, font = 2, col = "white")
+  text(195, 335, res[2], cex = 1.6, font = 2, col = "white")
+  text(295, 400, res[3], cex = 1.6, font = 2, col = "white")
+  text(295, 335, res[4], cex = 1.6, font = 2, col = "white")
+}
+```
+
+```{r}
+data <- read.csv("online_shoppers_intention.csv")
+data <- na.locf(data)
+data_sum <- summary(data)
+data_sum %>%
+  kable() %>%
+  kable_styling("striped") %>%
+  scroll_box(width = "700px", height = "400px")
+```
+
+## Data Visualization
+
+ * Chart 1: created a heat map to see the correlation between 10 numerical variables. We found that the type of page and the stay of that page has relatively higher correlations. 
+ 
+```{r}
+data_vis <- data[, ]
+col <- cor(data_vis[, c("Administrative", "Administrative_Duration", "Informational", "Informational_Duration", "ProductRelated", "ProductRelated_Duration", "BounceRates", "ExitRates", "PageValues", "SpecialDay")])
+corrplot(col, method = "square", title = "Correlation Matrix for Online Shoppers Intention", tl.cex = 0.7, tl.col = "black", mar = c(1, 1, 1, 1))
+```
+
+ * Chart 2: used pairs.panels to create a correlation, density and hist diagram of two features: ProductRelated and ProductRelated_Duration, which has the second-highest correlation value.
+ 
+```{r}
+pairs.panels(data_vis[c("ProductRelated", "ProductRelated_Duration")],
+  method = "pearson", # correlation method
+  hist.col = "light blue",
+  density = TRUE, # show density plots
+)
+```
+
+ * Chart 3: used the pairs.panels to display the highest correlation value of BounceRates and ExitRates.
+ 
+```{r}
+pairs.panels(data_vis[c("BounceRates", "ExitRates")],
+  method = "pearson", # correlation method
+  hist.col = "light blue",
+  density = TRUE, # show density plots
+)
+```
+
+ * Chart 4: used barplot to display popular shopping months and found out “May” is the most popular one.
+ 
+```{r}
+data_vis$Month <- factor(data_vis$Month, levels = c("Feb", "Mar", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"))
+barplot(table(data_vis$Month),
+  main = "Popular Shopping Month", xlab = "Month", ylab = "Count", border = "navy",
+  col = "light blue"
+)
+```
+
+ * Chart 5: displayed the different types of visitors and found out “returning_visitor” has many more numbers.
+ 
+```{r}
+barplot(table(data_vis$VisitorType), main = "Visitor Type", xlab = "Type", ylab = "Count", border = "navy", col = "light blue")
+```
+
+# Model Training without Oversampling
+
+Support vector machine, Random Forest and Multilayer Perceptron models to predict shoppers' purchasing intention.
+
+* Support Vector Machines (SVM) SVM a very often used for classification. It uses hyperplanes to split the data into separate groups, or classes. And kernel tricks can help with transforming the data to a higher dimension before the hyperplanes split the data into groups.
+
+* Random Forest: Decision trees and Random Forest is very useful for feature selection since there is always a binary split at every node.
+
+* Multilayer perceptron (MLP) is one of the most often used neural_network for classification.
+Users may specify the number of hidden layers. The model optimize a log-loss function using stochastic gradient descent. 
+
+
+## Support Vector Machine
+
+SVM is very often used for classification. It uses hyperplanes to split the data into separate groups, or classes. And kernel tricks can help with transforming the data to a higher dimension before the hyperplanes split the data into groups.
+
+**set categorical features as class variables.**
+
+```{r}
+data$OperatingSystems <- as.factor(data$OperatingSystems)
+data$Browser <- as.factor(data$Browser)
+data$Region <- as.factor(data$Region)
+data$TrafficType <- as.factor(data$TrafficType)
+data$VisitorType <- as.factor(data$VisitorType)
+data$Weekend <- as.factor(data$Weekend)
+data$Month <- as.factor(data$Month)
+data$Revenue <- as.factor(data$Revenue)
+```
+
+**train test split**
+
+```{r}
+sample_size <- floor(0.9 * nrow(data))
+train_ind <- sample(seq_len(nrow(data)), size = sample_size)
+data_train <- data[train_ind, ]
+data_test <- data[-train_ind, ]
+```
+
+```{r}
+svm_model <- ksvm(Revenue ~ ., data = data_train, kernel = "vanilladot")
+svm_pred <- predict(svm_model, data_test)
+F1_Score(y_pred = svm_pred, y_true = data_test$Revenue, positive = "TRUE")
+Accuracy(y_pred = svm_pred, y_true = data_test$Revenue)
+```
+
+```{r}
+svm_confusion <- confusionMatrix(data_test$Revenue, svm_pred)
+draw_confusion_matrix(svm_confusion)
+```
+```{r}
+# SVM with rbf kernel
+svm_modelrbf <- ksvm(Revenue ~ ., data = data_train, kernel = "rbfdot")
+svm_predrbf <- predict(svm_modelrbf, data_test)
+F1_Score(y_pred = svm_predrbf, y_true = data_test$Revenue, positive = "TRUE")
+Accuracy(y_pred = svm_predrbf, y_true = data_test$Revenue)
+```
+
+```{r}
+svm_confusionrbf <- confusionMatrix(data_test$Revenue, svm_predrbf)
+draw_confusion_matrix(svm_confusionrbf)
+```
+## Bayes
+```{r}
+library(e1071)
+by_model <- naiveBayes(Revenue ~ ., data = data_train)
+by_pred <- predict(by_model, data_test)
+F1_Score(y_pred = by_pred, y_true = data_test$Revenue, positive = "TRUE")
+Accuracy(y_pred = by_pred, y_true = data_test$Revenue)
+```
+```{r}
+by_confusion <- confusionMatrix(data_test$Revenue, by_pred)
+draw_confusion_matrix(by_confusion)
+```
+## Adaboost
+```{r}
+
+library("adabag")
+data_train_adaboost <- data_train
+data_test_adabooost <- data_test
+data.adaboost <- boosting(Revenue ~ .,
+  data = data_train_adaboost,
+  boos = FALSE,
+  mfinal = 100,
+  coeflearn = "Freund"
+)
+data.adaboost.pred <- predict.boosting(data.adaboost, newdata = data_test_adabooost, newmfinal = 100)
+F1_Score(y_pred = data.adaboost.pred$class, y_true = data_test$Revenue, positive = "TRUE")
+Accuracy(y_pred = data.adaboost.pred$class, y_true = data_test$Revenue)
+```
+
+
+```{r}
+data.adaboost.confusion <- confusionMatrix(as.factor(data_test_adabooost$Revenue), as.factor(data.adaboost.pred$class))
+#data.adaboost.confusion
+draw_confusion_matrix(data.adaboost.confusion)
+```
+
+## LDA
+```{r}
+library(MASS)
+lda_model <- lda(Revenue ~ ., data = data_train)
+lda_pred <- predict(lda_model, data_test)
+F1_Score(y_pred = lda_pred$class, y_true = data_test$Revenue, positive = "TRUE")
+Accuracy(y_pred = lda_pred$class, y_true = data_test$Revenue)
+```
+```{r}
+
+lda_confusion <- confusionMatrix(as.factor(data_test$Revenue), as.factor(lda_pred$class))
+draw_confusion_matrix(lda_confusion)
+```
+
+## Random forest
+
+```{r, message = FALSE}
+require(randomForest)
+rf_model <- randomForest(Revenue ~ ., data = data_train, importance = TRUE, ntree = 15)
+rf_pred <- predict(rf_model, data_test)
+F1_Score(y_pred = rf_pred, y_true = data_test$Revenue, positive = "TRUE")
+Accuracy(y_pred = rf_pred, y_true = data_test$Revenue)
+```
+```{r}
+rf_confusion <- confusionMatrix(data_test$Revenue, rf_pred)
+draw_confusion_matrix(rf_confusion)
+```
+## K-NN
+```{r}
+require(kknn)
+knn_model <- kknn(Revenue~., data_train, data_test, distance = 1, kernel = "triangular")
+knn_pred <-fitted(knn_model)
+#table(knn_pred,data_test$Revenue)
+freq <- table(knn_pred,data_test$Revenue)
+sum(diag(freq))/sum(freq)
+```
+```{r}
+knn_confusion <- confusionMatrix(data_test$Revenue, knn_pred)
+draw_confusion_matrix(knn_confusion)
+```
+
+
+
+## Decision Tree(Without Pruning)
+```{r}
+library(rpart)
+library(rpart.plot)
+osp.rpart <- rpart(Revenue~., data=data_train, method = 'class', cp=0)
+rpart.plot(osp.rpart, box.palette="RdBu", shadow.col="gray", nn=TRUE)
+osp.pred <- predict(osp.rpart, data_test, type="class")
+F1_Score(y_pred = osp.pred, y_true = data_test$Revenue, positive = "TRUE")
+Accuracy(y_pred = osp.pred, y_true = data_test$Revenue)
+printcp(osp.rpart)
+plotcp(osp.rpart)
+```
+
+```{r}
+osp.rpart <- confusionMatrix(as.factor(osp.pred), as.factor(data_test$Revenue))
+draw_confusion_matrix(osp.rpart)
+```
+## Decision Tree(With Pruning)
+```{r}
+osp.prune <- rpart(Revenue~., data=data_train, method = 'class', cp=0.008)
+rpart.plot(osp.prune, box.palette="RdBu", shadow.col="gray", nn=TRUE)
+
+prune.pred <- predict(osp.prune, data_test, type = "class") 
+F1_Score(y_pred = prune.pred, y_true = data_test$Revenue, positive = "TRUE")
+Accuracy(y_pred = prune.pred, y_true = data_test$Revenue)
+```
+
+```{r}
+prune.rpart <- confusionMatrix(as.factor(prune.pred), as.factor(data_test$Revenue))
+draw_confusion_matrix(prune.rpart)
+```
+## Multilayer Perceptron Classifier
+
+```{r}
+data_numeric <- data[, ]
+data_numeric$Revenue <- as.integer(as.factor(data_numeric$Revenue))
+data_numeric$Month <- as.integer(as.factor(data_numeric$Month))
+data_numeric$Weekend <- as.integer(as.factor(data_numeric$Weekend))
+data_numeric$VisitorType <- as.integer(as.factor(data_numeric$VisitorType))
+data_numeric$TrafficType <- as.integer(as.factor(data_numeric$TrafficType))
+data_numeric$Region <- as.integer(as.factor(data_numeric$Region))
+data_numeric$Browser <- as.integer(as.factor(data_numeric$Browser))
+data_numeric$OperatingSystems <- as.integer(as.factor(data_numeric$OperatingSystems))
+```
+
+
+```{r}
+data_numeric_train <- data_numeric[train_ind, ]
+data_numeric_test <- data_numeric[-train_ind, ]
+```
+
+
+```{r}
+mlp_train <- data_numeric_train[sample(1:nrow(data_numeric_train), length(1:nrow(data_numeric_train))), 1:ncol(data_numeric_train)]
+
+mlp_train_x <- mlp_train[, 1:17]
+mlp_train_y <- decodeClassLabels(mlp_train[, 18])
+mlp_data <- splitForTrainingAndTest(mlp_train_x, mlp_train_y, ratio = 0.1)
+
+mlp_model <- mlp(mlp_data$inputsTrain, mlp_data$targetsTrain,
+  size = 40, learnFuncParams = c(0.001),
+  linOut = FALSE, hiddenActFunc = "Act_Logistic",
+  maxit = 40, inputsTest = mlp_data$inputsTest, targetsTest = mlp_data$targetsTest
+)
+```
+
+
+```{r}
+mlp_test_x <- data_numeric_test[, 1:17]
+mlp_test_y <- decodeClassLabels(data_numeric_test[, 18])
+mlp_pred <- predict(mlp_model, mlp_test_x, type = "class")
+```
+
+```{r}
+gold <- as.numeric(mlp_test_y[, 2])
+temp <- as.numeric(mlp_pred[, 2])
+pred <- temp
+
+pred[temp > 0.2] <- 1
+pred[temp <= 0.2] <- 0
+
+
+tp <- 0
+fp <- 0
+fn <- 0
+tn <- 0
+
+for (i in 1:1233) {
+  if (gold[i] == 1) {
+    if (pred[i] == 1) {
+      tp <- tp + 1
+    } else {
+      fn <- fn + 1
+    }
+  } else {
+    if (pred[i] == 1) {
+      fp <- fp + 1
+    } else {
+      tn <- tn + 1
+    }
+  }
+}
+
+recall <- tp / (tp + fn)
+preci <- tp / (tp + fp)
+f1 <- 2 * recall * preci / (recall + preci)
+accuracy <- (tp + tn) / (tp + tn + fp + fn)
+Tpr <- tp/(tp+fn)
+Tnr <- tn/(tn+fp)
+print(f1)
+print(Tpr)
+print(Tnr)
+print(accuracy)
+```
+```{r}
+mlp_confusion <- confusionMatrix(as.factor(pred), as.factor(data_test$Revenue))
+draw_confusion_matrix(mlp_confusion)
+```
+## DNN
+```{r}
+library(keras)
+#x_train <- to_categorical(data_train,2)
+#x_test <- to_categorical(data_test,2)
+model <- keras_model_sequential() 
+model %>% 
+  layer_dense(units = 256, activation = 'relu', input_shape = c(17)) %>% 
+  layer_dropout(rate = 0.5) %>% 
+  layer_dense(units = 128, activation = 'relu') %>%
+  layer_dropout(rate = 0.3) %>%
+  layer_dense(units = 2, activation = 'softmax')
+model %>% compile(
+  loss = 'categorical_crossentropy',
+  optimizer = optimizer_rmsprop(),
+  metrics = c('accuracy')
+)
+history <- model %>% fit(
+  mlp_data$inputsTrain, mlp_data$targetsTrain,
+  epochs = 30, batch_size = 128, 
+  validation_split = 0.2
+)
+
+```
+```{r}
+library(labeling)
+plot(history)
+```
+```{r}
+library(nnet)
+nn <- nnet(data=data_train, Revenue~.,size = 10, rang = 0.1, decay = 0.01, maxit = 200, trControl = fitControl)
+nn_pred <- predict(nn,data_test,type="class")
+#plot(nn_pred,)
+nn_confusion <- confusionMatrix(as.factor(nn_pred), as.factor(data_test$Revenue))
+draw_confusion_matrix(nn_confusion)
+```
+
+
+## Bagging
+
+## K-means
+
+
+# Model Training with Oversampling
+
+Because the data set is highly imbalances such that there are far fewer users who made the purchases than those who did not, we used oversampling to increase the number of purchased users, by simply duplicating the entries 5.5 times. After this process, the categories for users who made the final purchases and who did not contain the same number of entries.
+
+**Oversampling**
+
+```{r}
+data_over <- read.csv("online_shoppers_intention.csv")
+data_over <- na.locf(data_over)
+data_over$OperatingSystems <- as.factor(data_over$OperatingSystems)
+data_over$Browser <- as.factor(data_over$Browser)
+data_over$Region <- as.factor(data_over$Region)
+data_over$TrafficType <- as.factor(data_over$TrafficType)
+data_over$VisitorType <- as.factor(data_over$VisitorType)
+data_over$Weekend <- as.factor(data_over$Weekend)
+data_over$Month <- as.factor(data_over$Month)
+data_over$Revenue <- as.factor(data_over$Revenue)
+```
+
+```{r}
+data_over_train <- data_over[train_ind, ]
+data_over_test <- data_over[-train_ind, ]
+data_over_train <- upSample(data_over_train, data_over_train$Revenue)
+data_over_train <- select(data_over_train, -Class)
+```
+
+## Support Vector Machines (SVMs)
+
+```{r}
+svm_over <- ksvm(Revenue ~ ., data = data_over_train, kernel = "vanilladot")
+svm_over_pred <- predict(svm_over, data_over_test)
+F1_Score(y_pred = svm_over_pred, y_true = data_over_test$Revenue, positive = "TRUE")
+Accuracy(y_pred = svm_over_pred, y_true = data_over_test$Revenue)
+```
+```{r}
+svm_over_confusion <- confusionMatrix(data_over_test$Revenue, svm_over_pred)
+draw_confusion_matrix(svm_over_confusion)
+```
+```{r}
+# SVM with rbf kernel
+svm_over_modelrbf <- ksvm(Revenue ~ ., data = data_over_train, kernel = "rbfdot")
+svm_over_predrbf <- predict(svm_over_modelrbf, data_over_test)
+F1_Score(y_pred = svm_over_predrbf, y_true = data_over_test$Revenue, positive = "TRUE")
+Accuracy(y_pred = svm_over_predrbf, y_true = data_over_test$Revenue)
+```
+
+```{r}
+svm_over_confusionrbf <- confusionMatrix(data_test$Revenue, svm_over_predrbf)
+draw_confusion_matrix(svm_over_confusionrbf)
+```
+## Bayes
+```{r}
+library(e1071)
+by_over <- naiveBayes(Revenue ~ ., data = data_over_train)
+by_over_pred <- predict(by_over, data_over_test)
+F1_Score(y_pred = by_over_pred, y_true = data_over_test$Revenue, positive = "TRUE")
+Accuracy(y_pred = by_over_pred, y_true = data_over_test$Revenue)
+```
+```{r}
+by_over_confusion <- confusionMatrix(data_over_test$Revenue, by_over_pred)
+draw_confusion_matrix(by_over_confusion)
+```
+
+## Adaboost
+```{r}
+
+library("adabag")
+data_over_train_adaboost <- data_over_train
+data_over_test_adabooost <- data_over_test
+data.over.adaboost <- boosting(Revenue ~ .,
+  data = data_train_adaboost,
+  boos = FALSE,
+  mfinal = 100,
+  coeflearn = "Freund"
+)
+data.over.adaboost.pred <- predict.boosting(data.over.adaboost, newdata = data_over_test_adabooost, newmfinal = 100)
+F1_Score(y_pred = data.over.adaboost.pred$class, y_true = data_over_test$Revenue, positive = "TRUE")
+Accuracy(y_pred = data.over.adaboost.pred$class, y_true = data_over_test$Revenue)
+```
+
+```{r}
+data.over.adaboost.confusion <- confusionMatrix(as.factor(data_over_test_adabooost$Revenue), as.factor(data.over.adaboost.pred$class))
+draw_confusion_matrix(data.over.adaboost.confusion)
+```
+
+## LDA
+```{r}
+library(MASS)
+lda_over <- lda(Revenue ~ ., data = data_over_train)
+lda_over_pred <- predict(lda_over, data_over_test)
+F1_Score(y_pred = lda_over_pred$class, y_true = data_over_test$Revenue, positive = "TRUE")
+Accuracy(y_pred = lda_over_pred$class, y_true = data_over_test$Revenue)
+```
+```{r}
+lda_over_confusion <- confusionMatrix(as.factor(data_over_test$Revenue), as.factor(lda_over_pred$class))
+draw_confusion_matrix(lda_over_confusion)
+```
+
+## RandomForest
+
+```{r}
+require(randomForest)
+rf_over <- randomForest(Revenue ~ ., data = data_over_train, importance = TRUE, ntree = 15)
+rf_over_pred <- predict(rf_over, data_over_test)
+F1_Score(y_pred = rf_over_pred, y_true = data_over_test$Revenue, positive = "TRUE")
+Accuracy(y_pred = rf_over_pred, y_true = data_over_test$Revenue)
+```
+```{r}
+rf_over_confusion <- confusionMatrix(rf_over_pred,data_over_test$Revenue)
+draw_confusion_matrix(rf_over_confusion)
+```
+```{r}
+require(kknn)
+knn_over_model <- kknn(Revenue~., data_over_train, data_over_test, distance = 1, kernel = "triangular")
+knn_over_pred <-fitted(knn_over_model)
+#table(knn_pred,data_test$Revenue)
+freq <- table(knn_over_pred,data_over_test$Revenue)
+sum(diag(freq))/sum(freq)
+```
+
+
+```{r}
+knn_over_confusion <- confusionMatrix(data_over_test$Revenue, knn_over_pred)
+draw_confusion_matrix(knn_over_confusion)
+```
+## Decision Tree(Without Pruning)
+```{r}
+library(rpart)
+library(rpart.plot)
+osp.over.rpart <- rpart(Revenue~., data=data_over_train, method = 'class', cp=0)
+rpart.plot(osp.over.rpart, box.palette="RdBu", shadow.col="gray", nn=TRUE)
+osp.over.pred <- predict(osp.over.rpart, data_over_test, type="class")
+F1_Score(y_pred = osp.over.pred, y_true = data_over_test$Revenue, positive = "TRUE")
+Accuracy(y_pred = osp.over.pred, y_true = data_over_test$Revenue)
+printcp(osp.over.rpart)
+plotcp(osp.over.rpart)
+```
+
+```{r}
+osp.over.rpart <- confusionMatrix(as.factor(osp.over.pred), as.factor(data_over_test$Revenue))
+draw_confusion_matrix(osp.over.rpart)
+```
+## Decision Tree(With Pruning)
+```{r}
+osp.over.prune <- rpart(Revenue~., data=data_over_train, method = 'class', cp=0.004)
+rpart.plot(osp.over.prune, box.palette="RdBu", shadow.col="gray", nn=TRUE)
+
+prune.over.pred <- predict(osp.over.prune, data_over_test, type = "class") 
+F1_Score(y_pred = prune.over.pred, y_true = data_over_test$Revenue, positive = "TRUE")
+Accuracy(y_pred = prune.over.pred, y_true = data_over_test$Revenue)
+```
+
+```{r}
+prune.over.rpart <- confusionMatrix(as.factor(prune.over.pred), as.factor(data_over_test$Revenue))
+draw_confusion_matrix(prune.over.rpart)
+```
+## Multilayer Perceptron Classifier
+
+```{r}
+data_over_numeric <- data_over[, ]
+data_over_numeric$Revenue <- as.factor(data_over_numeric$Revenue)
+data_over_numeric$Month <- as.integer(as.factor(data_over_numeric$Month))
+data_over_numeric$Weekend <- as.integer(as.factor(data_over_numeric$Weekend))
+data_over_numeric$VisitorType <- as.integer(as.factor(data_over_numeric$VisitorType))
+data_over_numeric$TrafficType <- as.integer(as.factor(data_over_numeric$TrafficType))
+data_over_numeric$Region <- as.integer(as.factor(data_over_numeric$Region))
+data_over_numeric$Browser <- as.integer(as.factor(data_over_numeric$Browser))
+data_over_numeric$OperatingSystems <- as.integer(as.factor(data_over_numeric$OperatingSystems))
+```
+
+```{r}
+data_over_numeric_train <- data_over_numeric[train_ind, ]
+data_over_numeric_test <- data_over_numeric[-train_ind, ]
+```
+
+```{r}
+mlp_over_train_raw_order <- data_over_numeric_train
+mlp_over_train <- data_over_numeric_train[sample(1:nrow(data_over_numeric_train), length(1:nrow(data_over_numeric_train))), 1:ncol(data_over_numeric_train)]
+
+mlp_over_train_x <- mlp_over_train[, 1:17]
+mlp_over_train_y <- decodeClassLabels(mlp_over_train[, 18])
+
+mlp_over_data <- splitForTrainingAndTest(mlp_over_train_x, mlp_over_train_y, ratio = 0.1)
+# iris <- normTrainingAndTestSet(iris)
+
+mlp_over <- mlp(mlp_over_data$inputsTrain, mlp_over_data$targetsTrain,
+  size = 40, learnFuncParams = c(0.001),
+  maxit = 150, learnFunc = "Rprop", inputsTest = mlp_over_data$inputsTest, targetsTest = mlp_over_data$targetsTest
+)
+```
+
+```{r}
+mlp_over_test_x <- data_over_numeric_test[, 1:17]
+mlp_over_test_y <- decodeClassLabels(data_over_numeric_test[, 18])
+mlp_over_pred <- predict(mlp_over, mlp_over_test_x, type = "class")
+```
+
+```{r}
+gold <- as.numeric(mlp_over_test_y[, 2])
+temp <- as.numeric(mlp_over_pred[, 2])
+pred <- temp
+
+pred[temp > 0.5] <- 1
+pred[temp <= 0.5] <- 0
+
+
+tp <- 0
+fp <- 0
+fn <- 0
+tn <- 0
+
+for (i in 1:1233) {
+  if (gold[i] == 1) {
+    if (pred[i] == 1) {
+      tp <- tp + 1
+    } else {
+      fn <- fn + 1
+    }
+  } else {
+    if (pred[i] == 1) {
+      fp <- fp + 1
+    } else {
+      tn <- tn + 1
+    }
+  }
+}
+
+recall <- tp / (tp + fn)
+preci <- tp / (tp + fp)
+f1 <- 2 * recall * preci / (recall + preci)
+accuracy <- (tp + tn) / (tp + tn + fp + fn)
+Tpr <- tp/(tp+fn)
+Tnr <- tn/(tn+fp)
+print(f1)
+print(Tpr)
+print(Tnr)
+print(accuracy)
+```
+
+```{r}
+mlp.over.confusion <- confusionMatrix(as.factor(pred), as.factor(data_test$Revenue))
+draw_confusion_matrix(mlp.over.confusion)
+```
+## DNN
+```{r}
+library(keras)
+#x_train <- to_categorical(data_train,2)
+#x_test <- to_categorical(data_test,2)
+model <- keras_model_sequential() 
+model %>% 
+  layer_dense(units = 256, activation = 'relu', input_shape = c(17)) %>% 
+  layer_dropout(rate = 0.5) %>% 
+  layer_dense(units = 128, activation = 'relu') %>%
+  layer_dropout(rate = 0.3) %>%
+  layer_dense(units = 2, activation = 'softmax')
+model %>% compile(
+  loss = 'categorical_crossentropy',
+  optimizer = optimizer_rmsprop(),
+  metrics = c('accuracy')
+)
+history <- model %>% fit(
+  mlp_over_data$inputsTrain, mlp_over_data$targetsTrain,
+  epochs = 30, batch_size = 128, 
+  validation_split = 0.2
+)
+
+```
+
+```{r}
+library(labeling)
+plot(history)
+```
+```{r}
+library(nnet)
+nn.over <- nnet(data=data_over_train, Revenue~.,size = 10, rang = 0.1, decay = 0.01, maxit = 200, trControl = fitControl)
+nn.over.pred <- predict(nn.over,data_over_test,type="class")
+#plot(nn_pred,)
+nn.over.confusion <- confusionMatrix(as.factor(nn.over.pred), as.factor(data_over_test$Revenue))
+draw_confusion_matrix(nn.over.confusion)
+```
+
+## Bagging
+
+```{r}
+
+library(adabag)
+library(rpart)
+library(rpart.plot)
+
+data_train <- data_train[,-1]
+
+Ctl<-rpart.control(minsplit=20,maxcompete=4,maxdepth=30,cp=0.01,xval=10)
+set.seed(12345)
+bag_model <- bagging(Revenue~.,data=data_train,control=Ctl,mfinal = 25)
+bag_pred <- predict(bag_model, data_test)
+
+bag_model$importance
+CFit3 <- predict.bagging(bag_model, data_test)
+CFit3$confusion
+CFit3$error
+
+```
+
+## Ensemble
+
+Ensemble is to use the predictions of several different models as feature inputs, and train a new model based on these predictions. Theoretically the ensemble modle should be better than the previous models.In our case, this is an ensemble for the SVM, Random Forest, and MLP model with oversampling.
+
+```{r}
+
+mlp_over_train_x <- mlp_over_train_raw_order[, 1:17]
+mlp_over_train_y <- decodeClassLabels(mlp_over_train_raw_order[, 18])
+
+mlp_over_pred_train <- predict(mlp_over, mlp_over_train_x, type = "class")
+temp <- as.numeric(mlp_over_pred_train[, 2])
+mlp_over_pred_train_class <- temp
+mlp_over_pred_train_class[temp > 0.5] <- 1
+mlp_over_pred_train_class[temp <= 0.5] <- 0
+
+mlp_over_pred_test <- predict(mlp_over, mlp_over_test_x, type = "class")
+temp <- as.numeric(mlp_over_pred_test[, 2])
+mlp_over_pred_test_class <- temp
+mlp_over_pred_test_class[temp > 0.5] <- 1
+mlp_over_pred_test_class[temp <= 0.5] <- 0
+
+mlp_over_pred_train_class <- mlp_over_pred_train_class == TRUE
+mlp_over_pred_test_class <- mlp_over_pred_test_class == TRUE
+mlp_over_pred_train_class <- as.factor(mlp_over_pred_train_class)
+mlp_over_pred_test_class <- as.factor(mlp_over_pred_test_class)
+```
+
+
+```{r}
+rf_pred_train <- predict(rf_over, data_over_train)
+svm_pred_train <- predict(svm_over, data_over_train)
+ensemble_train <- cbind(svm_pred_train, rf_pred_train, mlp_over_pred_train_class, data_over_train$Revenue)
+ensemble_train <- as.data.frame(ensemble_train)
+colnames(ensemble_train) <- c("svm", "rf", "mlp", "true")
+
+
+rf_pred_test <- predict(rf_over, data_over_test)
+svm_pred_test <- predict(svm_over, data_over_test)
+ensemble_test <- cbind(svm_pred_test, rf_pred_test, mlp_over_pred_test_class, data_over_test$Revenue)
+ensemble_test <- as.data.frame(ensemble_test)
+colnames(ensemble_test) <- c("svm", "rf", "mlp", "true")
+```
+
+```{r}
+ensemble <- randomForest(x = ensemble_train, y = data_over_train$Revenue, importance = TRUE, ntree = 3)
+# ensemble <- ksvm(x=ensemble_train, y= data_over_train$Revenue, kernel = "vanilladot")
+ensemble_pred <- predict(ensemble, ensemble_test)
+
+F1_Score(y_pred = ensemble_pred, y_true = data_over_test$Revenue, positive = "TRUE")
+Accuracy(y_pred = ensemble_pred, y_true = data_over_test$Revenue)
+```
+
+# Feature Selection
+
+Random Forest (without oversamping) will be used for feature selection, trying to identify what features would influence the prediction of shoppers buying intention.
+
+```{r}
+varImpPlot(rf_model, cex = 0.7, col = "navy")
+print(rf_model)
+```
+
+In feature selection, Gini index is refering to information gain. According Accuracy and Gini index in the Random Forest model(without oversampling), when PageValues is excluded, both of the metrics would decrease. PageValues is by far the most important feature when prediction if a viewer will make a final purchase. 
+
+```{r}
+imp <- randomForest::importance(rf_model)
+impvar <- rownames(imp)[order(imp[, 1], decreasing = TRUE)]
+op <- par(mfrow = c(2, 3))
+for (i in 1:6) { # seq_along(impvar)) { # to plot the marginal probabilities for all features
+  partialPlot(rf_model, data_train, impvar[i],
+    xlab = impvar[i],
+    main = paste("Partial Dependence of 'Revenue'\n on ", impvar[i])
+  )
+}
+```
+
+According to the parcial dependecy plots,some most important features are PageValues, ProductRelated,  Administrative_Duration. PageValues have an earliest and steepest drop. 
+
+According to the common features yiled by the feature selection methods, we could possible stipulate that the value of pages, and number of pages that the viewer go through, and the time that the viewer spends on the related pages will be some crucial features to predict if they will make the final purchase or not. Further statistic analysis is needed to test such hypothese.
+
+# Result
+
+## Model prediction
+* Model training without oversampling at the first round, Random Forest has comparatively higher accuracy and F1 Score than RF and MLP. After introducing oversampling, they have similar accuracy and F1 Score. 
+
+* Oversampling does help with improving the performance of the models.
+
+* The Ensemble using the prediction of the three models yield the best accuracy and f1 score among all.
+
+## Feature selection
+
+* Salient features are: Page Value; Product Related (number of related pages have viewed); Product Related Duration(total time spent on related pages).
+
+* We can hypothesize that more attractive the pages are, the more pages the viewer reads, the more time the viewer spends on the pages, the more likely they are going to make a purchase.
+
+# Discussion/Future Research
+
+There are possible bugs for calculating f1 scores running MLP without oversampling. Also, More research for a proper model should be conducted. The three models that are run here may not be the best option for the task. Also, more research for semble should be done in order to show the advantage of the ensemble mode running accurately.
+
+For future research, different methods of data augmentation should be experimented to improve model performance. Statistic analysis of the selected features can be conduct to the causal effect of the purchasing intention. More Parameter tuning should be done to improve the performance of the models. Also, we can experiment with different structures of CNN for better performance.
+
+# Acknowledgment
+
+* Thanks Dr. Dinov for all the great instruction this semester. 
+* Thanks Xinyan Zhao for his great patience helping with debugging and things for oversampling.
+
+# Reference
+
+Dinov, Ivo D. (2018). Data Science and Predictive Analytics Biomedical and Health Applications using R /. Cham : Springer International Publishing : Imprint: Springer.
+
+Sakar, C Okan, Sakar, C Okan, Polat, S Olcay, Polat, S Olcay, Katircioglu, Mete, Katircioglu, Mete, Kastro, Yomi, et al. (2019). Real-time prediction of online shoppers’ purchasing intention using multilayer perceptron and LSTM recurrent neural networks. Neural Computing and Applications, 31(10), 6893–6908. London: Springer London.
+
+
+[Back to Homepage](../index.html)
